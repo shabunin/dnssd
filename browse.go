@@ -23,7 +23,7 @@ type BrowseEntry struct {
 
 // AddFunc is called when a service instance was found.
 // It is called again for the same instance, when new IP addresses
-// of the instance are found.
+// of the instance are found or its txt records change.
 type AddFunc func(BrowseEntry)
 
 // RmvFunc is called when a service instance disappared.
@@ -141,9 +141,10 @@ func lookupType(ctx context.Context, service string, conn MDNSConn, add AddFunc,
 						}
 					}
 					if found != nil {
-						if !containsIPs(found.IPs, ips) {
-							// new addresses of known instance
+						if !containsIPs(found.IPs, ips) || !equalText(found.Text, srv.Text) {
+							// new addresses or txt records of known instance
 							found.IPs = append([]net.IP(nil), ips...)
+							found.Text = srv.Text
 							add(*found)
 						}
 					} else {
@@ -172,6 +173,18 @@ func lookupType(ctx context.Context, service string, conn MDNSConn, add AddFunc,
 func containsIPs(known []net.IP, ips []net.IP) bool {
 	for _, ip := range ips {
 		if !containsIP(known, ip) {
+			return false
+		}
+	}
+	return true
+}
+
+func equalText(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if bv, ok := b[k]; !ok || bv != v {
 			return false
 		}
 	}

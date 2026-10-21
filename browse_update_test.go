@@ -189,3 +189,26 @@ func TestBrowseAddressChange(t *testing.T) {
 	msgs <- announcement(120, 1000, "10.0.0.2")
 	expectNoEvent(t, events)
 }
+
+func withText(m *dns.Msg, ttl uint32, txt ...string) *dns.Msg {
+	m.Answer = append(m.Answer, &dns.TXT{Hdr: dns.RR_Header{Name: testInstance, Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: ttl}, Txt: txt})
+	return m
+}
+
+func TestBrowseTextChange(t *testing.T) {
+	msgs, events := startBrowse(t)
+
+	msgs <- withText(announcement(120, 1000, "10.0.0.1"), 120, "c#=1", "id=AA")
+	if ev := next(t, events); !ev.added || ev.entry.Text["c#"] != "1" {
+		t.Fatalf("expected add with c#=1, got added=%v %+v", ev.added, ev.entry)
+	}
+
+	// accessory configuration changed
+	msgs <- withText(announcement(120, 1000, "10.0.0.1"), 120, "c#=2", "id=AA")
+	if ev := next(t, events); !ev.added || ev.entry.Text["c#"] != "2" {
+		t.Fatalf("expected add with c#=2, got added=%v %+v", ev.added, ev.entry)
+	}
+
+	msgs <- withText(announcement(120, 1000, "10.0.0.1"), 120, "c#=2", "id=AA")
+	expectNoEvent(t, events)
+}
