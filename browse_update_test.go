@@ -144,3 +144,28 @@ func TestBrowseGoodbye(t *testing.T) {
 	}
 	expectNoEvent(t, events)
 }
+
+func TestCacheIgnoresKnownIPs(t *testing.T) {
+	cache := NewCache()
+	eth0 := &net.Interface{Name: "eth0", Index: 1}
+	wlan0 := &net.Interface{Name: "wlan0", Index: 2}
+
+	for i := 0; i < 3; i++ {
+		cache.UpdateFrom(&Request{msg: announcement(120, 1000, "10.0.0.1", "fe80::1"), iface: eth0})
+	}
+	cache.UpdateFrom(&Request{msg: announcement(120, 1000, "10.0.0.1"), iface: wlan0})
+
+	srv := cache.services[testInstance]
+	if srv == nil {
+		t.Fatal("service not cached")
+	}
+	if got := ipStrings(srv.IPs); len(got) != 2 {
+		t.Fatalf("expected 2 IPs, got %v", got)
+	}
+	if got := ipStrings(srv.ifaceIPs["eth0"]); len(got) != 2 {
+		t.Fatalf("expected 2 IPs at eth0, got %v", got)
+	}
+	if got := ipStrings(srv.ifaceIPs["wlan0"]); len(got) != 1 {
+		t.Fatalf("expected 1 IP at wlan0, got %v", got)
+	}
+}

@@ -438,15 +438,25 @@ func (s Service) ServicesMetaQueryName() string {
 	return fmt.Sprintf("_services._dns-sd._udp.%s.", s.Domain)
 }
 
+// addIP adds ip to the service, if it is not known yet.
+// Address records are received with every announcement,
+// so they must not be stored again.
 func (s *Service) addIP(ip net.IP, iface *net.Interface) {
-	s.IPs = append(s.IPs, ip)
-	if iface != nil {
-		ifaceIPs := []net.IP{ip}
-		if ips, ok := s.ifaceIPs[iface.Name]; ok {
-			ifaceIPs = append(ips, ip)
-		}
-		s.ifaceIPs[iface.Name] = ifaceIPs
+	if !containsIP(s.IPs, ip) {
+		s.IPs = append(s.IPs, ip)
 	}
+	if iface != nil && !containsIP(s.ifaceIPs[iface.Name], ip) {
+		s.ifaceIPs[iface.Name] = append(s.ifaceIPs[iface.Name], ip)
+	}
+}
+
+func containsIP(ips []net.IP, ip net.IP) bool {
+	for _, i := range ips {
+		if i.Equal(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 func newService(instance string) *Service {
