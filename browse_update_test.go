@@ -169,3 +169,23 @@ func TestCacheIgnoresKnownIPs(t *testing.T) {
 		t.Fatalf("expected 1 IP at wlan0, got %v", got)
 	}
 }
+
+func TestBrowseAddressChange(t *testing.T) {
+	msgs, events := startBrowse(t)
+
+	msgs <- announcement(120, 1000, "10.0.0.1")
+	next(t, events)
+
+	// address changed, e.g. new dhcp lease, service was not restarted
+	msgs <- announcement(120, 1000, "10.0.0.2")
+	ev := next(t, events)
+	if !ev.added || ev.entry.Port != 1000 {
+		t.Fatalf("expected add with updated addresses, got added=%v %+v", ev.added, ev.entry)
+	}
+	if got := ipStrings(ev.entry.IPs); len(got) != 2 || got[0] != "10.0.0.1" || got[1] != "10.0.0.2" {
+		t.Fatalf("unexpected IPs %v", got)
+	}
+
+	msgs <- announcement(120, 1000, "10.0.0.2")
+	expectNoEvent(t, events)
+}

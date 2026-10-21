@@ -22,6 +22,8 @@ type BrowseEntry struct {
 }
 
 // AddFunc is called when a service instance was found.
+// It is called again for the same instance, when new IP addresses
+// of the instance are found.
 type AddFunc func(BrowseEntry)
 
 // RmvFunc is called when a service instance disappared.
@@ -131,16 +133,22 @@ func lookupType(ctx context.Context, service string, conn MDNSConn, add AddFunc,
 				}
 
 				for ifaceName, ips := range srv.ifaceIPs {
-					var found = false
+					var found *BrowseEntry
 					for _, e := range es {
 						if e.Name == srv.Name && e.IfaceName == ifaceName && e.Port == srv.Port {
-							found = true
+							found = e
 							break
 						}
 					}
-					if !found {
+					if found != nil {
+						if !containsIPs(found.IPs, ips) {
+							// new addresses of known instance
+							found.IPs = append([]net.IP(nil), ips...)
+							add(*found)
+						}
+					} else {
 						e := BrowseEntry{
-							IPs:       ips,
+							IPs:       append([]net.IP(nil), ips...),
 							Host:      srv.Host,
 							Port:      srv.Port,
 							IfaceName: ifaceName,
@@ -158,4 +166,14 @@ func lookupType(ctx context.Context, service string, conn MDNSConn, add AddFunc,
 			return ctx.Err()
 		}
 	}
+}
+
+// containsIPs returns true if all ips are in known.
+func containsIPs(known []net.IP, ips []net.IP) bool {
+	for _, ip := range ips {
+		if !containsIP(known, ip) {
+			return false
+		}
+	}
+	return true
 }
