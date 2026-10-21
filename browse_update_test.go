@@ -224,10 +224,12 @@ func (c *queryConn) SendQuery(q *Query) error {
 	return nil
 }
 
-func TestBrowseRepeatsQuery(t *testing.T) {
-	minInterval, maxInterval, ifaces := queryMinInterval, queryMaxInterval, multicastInterfaces
-	t.Cleanup(func() { queryMinInterval, queryMaxInterval, multicastInterfaces = minInterval, maxInterval, ifaces })
-	queryMinInterval, queryMaxInterval = 20*time.Millisecond, 80*time.Millisecond
+// startQueryBrowse browses with given query intervals at one interface
+// and records sent queries.
+func startQueryBrowse(t *testing.T, minInterval, maxInterval time.Duration) *queryConn {
+	oldMin, oldMax, oldIfaces := queryMinInterval, queryMaxInterval, multicastInterfaces
+	t.Cleanup(func() { queryMinInterval, queryMaxInterval, multicastInterfaces = oldMin, oldMax, oldIfaces })
+	queryMinInterval, queryMaxInterval = minInterval, maxInterval
 	multicastInterfaces = func(...string) []*net.Interface {
 		return []*net.Interface{{Name: "eth0", Index: 1}}
 	}
@@ -244,6 +246,11 @@ func TestBrowseRepeatsQuery(t *testing.T) {
 		cancel()
 		<-done
 	})
+	return conn
+}
+
+func TestBrowseRepeatsQuery(t *testing.T) {
+	conn := startQueryBrowse(t, 20*time.Millisecond, 80*time.Millisecond)
 
 	var times []time.Time
 	for len(times) < 6 {
@@ -263,5 +270,107 @@ func TestBrowseRepeatsQuery(t *testing.T) {
 		if got < w-5*time.Millisecond || got > w+30*time.Millisecond {
 			t.Fatalf("interval %d is %v, want %v", i, got, w)
 		}
+	}
+}
+
+func TestBrowseRefreshesBeforeExpiry(t *testing.T) {
+	// no scheduled queries during test
+	conn := startQueryBrowse(t, time.Hour, time.Hour)
+	<-conn.sent
+
+	received := time.Now()
+	conn.ch <- &Request{msg: announcement(2, 1000, "10.0.0.1"), iface: &net.Interface{Name: "eth0", Index: 1}}
+
+	// at 80%, 85%, 90% and 95% of 2s
+	for _, want := range []time.Duration{1600, 1700, 1800, 1900} {
+		select {
+		case at := <-conn.sent:
+			got := at.Sub(received)
+			want *= time.Millisecond
+			if got < want-10*time.Millisecond || got > want+60*time.Millisecond {
+				t.Fatalf("query at %v, want %v", got, want)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatalf("no query at %v", want)
+		}
+	}
+	select {
+	case <-conn.sent:
+		t.Fatal("unexpected query after 95% of ttl")
+	case <-time.After(300 * time.Millisecond):
+	}
+}
+
+func TestBrowseRemovesExpired(t *testing.T) {
+	msgs, events := startBrowse(t)
+
+	msgs <- announcement(1, 1000, "10.0.0.1")
+	next(t, events)
+
+	// nothing is received anymore
+	select {
+	case ev := <-events:
+		if ev.added {
+			t.Fatalf("expected remove, got add %+v", ev.entry)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("expired instance should be removed")
+	}
+}
+
+func message(rrs ...dns.RR) *dns.Msg {
+	m := new(dns.Msg)
+	m.Response = true
+	m.Answer = rrs
+	return m
+}
+
+func TestCacheLifetimeOfInstance(t *testing.T) {
+	eth0 := &net.Interface{Name: "eth0", Index: 1}
+	ptr := func(ttl uint32) dns.RR {
+		return &dns.PTR{Hdr: dns.RR_Header{Name: "_hap._tcp.local.", Rrtype: dns.TypePTR, Class: dns.ClassINET, Ttl: ttl}, Ptr: testInstance}
+	}
+	srv := func(ttl uint32) dns.RR {
+		return &dns.SRV{Hdr: dns.RR_Header{Name: testInstance, Rrtype: dns.TypeSRV, Class: dns.ClassINET, Ttl: ttl}, Port: 1000, Target: "bridge.local."}
+	}
+	txt := func(ttl uint32) dns.RR {
+		return &dns.TXT{Hdr: dns.RR_Header{Name: testInstance, Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: ttl}, Txt: []string{"id=AA"}}
+	}
+	expiresIn := func(c *Cache) time.Duration {
+		s := c.services[testInstance]
+		if s == nil {
+			return 0
+		}
+		return time.Until(s.expiration).Round(time.Minute)
+	}
+
+	c := NewCache()
+	c.UpdateFrom(&Request{msg: message(ptr(4500), srv(120), txt(4500)), iface: eth0})
+	if d := expiresIn(c); d != 75*time.Minute {
+		t.Fatalf("listed instance expires in %v, want PTR ttl", d)
+	}
+	// e.g. other host asked for SRV record
+	c.UpdateFrom(&Request{msg: message(srv(120)), iface: eth0})
+	if d := expiresIn(c); d != 75*time.Minute {
+		t.Fatalf("SRV record shortened lifetime to %v", d)
+	}
+
+	c = NewCache()
+	c.UpdateFrom(&Request{msg: message(ptr(120), srv(120), txt(4500)), iface: eth0})
+	if d := expiresIn(c); d != 2*time.Minute {
+		t.Fatalf("TXT record extended lifetime to %v", d)
+	}
+
+	// resolved by name, no PTR record
+	c = NewCache()
+	c.UpdateFrom(&Request{msg: message(srv(120), txt(4500)), iface: eth0})
+	if d := expiresIn(c); d != 2*time.Minute {
+		t.Fatalf("resolved instance expires in %v, want SRV ttl", d)
+	}
+
+	// goodbye of SRV record
+	c.UpdateFrom(&Request{msg: message(srv(0)), iface: eth0})
+	if _, ok := c.services[testInstance]; ok {
+		t.Fatal("instance should be removed")
 	}
 }

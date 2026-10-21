@@ -105,84 +105,112 @@ func lookupType(ctx context.Context, service string, conn MDNSConn, add AddFunc,
 		}
 	}
 
+	es := []*BrowseEntry{}
+	// update reports changes of cached instances.
+	update := func() {
+		// Process removed entries first, so that a service instance
+		// that changed its port is removed before it is added again.
+		tmp := []*BrowseEntry{}
+		for _, e := range es {
+			var found = false
+			for _, srv := range cache.Services() {
+				if srv.ServiceInstanceName() == e.ServiceInstanceName() && srv.Port == e.Port {
+					found = true
+					break
+				}
+			}
+
+			if found {
+				tmp = append(tmp, e)
+			} else {
+				// TODO
+				rmv(*e)
+			}
+		}
+		es = tmp
+
+		for _, srv := range cache.Services() {
+			if srv.ServiceName() != service {
+				continue
+			}
+
+			for ifaceName, ips := range srv.ifaceIPs {
+				var found *BrowseEntry
+				for _, e := range es {
+					if e.Name == srv.Name && e.IfaceName == ifaceName && e.Port == srv.Port {
+						found = e
+						break
+					}
+				}
+				if found != nil {
+					if !containsIPs(found.IPs, ips) || !equalText(found.Text, srv.Text) {
+						// new addresses or txt records of known instance
+						found.IPs = append([]net.IP(nil), ips...)
+						found.Text = srv.Text
+						add(*found)
+					}
+				} else {
+					e := BrowseEntry{
+						IPs:       append([]net.IP(nil), ips...),
+						Host:      srv.Host,
+						Port:      srv.Port,
+						IfaceName: ifaceName,
+						Name:      srv.Name,
+						Type:      srv.Type,
+						Domain:    srv.Domain,
+						Text:      srv.Text,
+					}
+					es = append(es, &e)
+					add(e)
+				}
+			}
+		}
+	}
+
 	// The query is repeated, so that a lost query or response doesn't hide
 	// service instances until they announce themselves again,
 	// and a responder that ignored the query, because it answered
 	// another one less than a second ago, answers the next one.
+	// It is also sent before PTR records expire, so they are not
+	// removed while instances are still there, and expired
+	// instances are removed when nothing is received.
 	sendQueries()
+	lastQuery := time.Now()
 	interval := queryMinInterval
+	nextQuery := lastQuery.Add(interval)
 	timer := time.NewTimer(interval)
 	defer timer.Stop()
 
-	es := []*BrowseEntry{}
 	for {
+		wake := nextQuery
+		if t, ok := cache.refreshTime(service, lastQuery); ok && t.Before(wake) {
+			wake = t
+		}
+		if t, ok := cache.nextExpiration(); ok && t.Before(wake) {
+			wake = t
+		}
+		timer.Reset(time.Until(wake))
+
 		select {
 		case <-timer.C:
-			sendQueries()
-			interval = min(interval*2, queryMaxInterval)
-			timer.Reset(interval)
+			now := time.Now()
+			refresh, ok := cache.refreshTime(service, lastQuery)
+			if !now.Before(nextQuery) || ok && !now.Before(refresh) {
+				sendQueries()
+				lastQuery = now
+			}
+			if !now.Before(nextQuery) {
+				interval = min(interval*2, queryMaxInterval)
+				nextQuery = now.Add(interval)
+			}
+			cache.removeExpired()
+			update()
 
 		case req := <-ch:
 			log.Debug.Printf("Receive message at %s\n%s\n", req.IfaceName(), req.msg)
 			cache.UpdateFrom(req)
+			update()
 
-			// Process removed entries first, so that a service instance
-			// that changed its port is removed before it is added again.
-			tmp := []*BrowseEntry{}
-			for _, e := range es {
-				var found = false
-				for _, srv := range cache.Services() {
-					if srv.ServiceInstanceName() == e.ServiceInstanceName() && srv.Port == e.Port {
-						found = true
-						break
-					}
-				}
-
-				if found {
-					tmp = append(tmp, e)
-				} else {
-					// TODO
-					rmv(*e)
-				}
-			}
-			es = tmp
-
-			for _, srv := range cache.Services() {
-				if srv.ServiceName() != service {
-					continue
-				}
-
-				for ifaceName, ips := range srv.ifaceIPs {
-					var found *BrowseEntry
-					for _, e := range es {
-						if e.Name == srv.Name && e.IfaceName == ifaceName && e.Port == srv.Port {
-							found = e
-							break
-						}
-					}
-					if found != nil {
-						if !containsIPs(found.IPs, ips) || !equalText(found.Text, srv.Text) {
-							// new addresses or txt records of known instance
-							found.IPs = append([]net.IP(nil), ips...)
-							found.Text = srv.Text
-							add(*found)
-						}
-					} else {
-						e := BrowseEntry{
-							IPs:       append([]net.IP(nil), ips...),
-							Host:      srv.Host,
-							Port:      srv.Port,
-							IfaceName: ifaceName,
-							Name:      srv.Name,
-							Type:      srv.Type,
-							Domain:    srv.Domain,
-							Text:      srv.Text,
-						}
-						es = append(es, &e)
-						add(e)
-					}
-				}
-			}
 		case <-ctx.Done():
 			return ctx.Err()
 		}

@@ -131,6 +131,11 @@ type Service struct {
 	// stores ips by interface name for caching purposes
 	ifaceIPs   map[string][]net.IP
 	expiration time.Time
+
+	// instance is listed by PTR record, it sets expiration then,
+	// otherwise SRV record does, e.g. when instance is resolved by name
+	hasPTR bool
+	ptrTTL time.Duration
 }
 
 // NewService returns a new service for the given config.
@@ -300,6 +305,8 @@ func (s Service) Copy() *Service {
 		Blocked:         s.Blocked,
 		ifaceIPs:        s.ifaceIPs,
 		expiration:      s.expiration,
+		hasPTR:          s.hasPTR,
+		ptrTTL:          s.ptrTTL,
 	}
 }
 

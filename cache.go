@@ -55,6 +55,8 @@ func (c *Cache) UpdateFrom(req *Request) (adds []*Service, rmvs []*Service) {
 
 			entry.TTL = ttl
 			entry.expiration = time.Now().Add(ttl)
+			entry.hasPTR = true
+			entry.ptrTTL = ttl
 
 		case *dns.SRV:
 			ttl := time.Duration(rr.Hdr.Ttl) * time.Second
@@ -72,9 +74,17 @@ func (c *Cache) UpdateFrom(req *Request) (adds []*Service, rmvs []*Service) {
 			}
 
 			entry.SetHostname(rr.Target)
-			entry.TTL = ttl
-			entry.expiration = time.Now().Add(ttl)
 			entry.Port = int(rr.Port)
+			switch {
+			case ttl == 0:
+				// goodbye
+				entry.expiration = time.Now()
+			case !entry.hasPTR:
+				entry.TTL = ttl
+				entry.expiration = time.Now().Add(ttl)
+			}
+			// SRV record of listed instance usually has shorter ttl than PTR,
+			// it doesn't mean instance is gone when it expires
 
 		case *dns.A:
 			for _, entry := range c.services {
@@ -110,15 +120,12 @@ func (c *Cache) UpdateFrom(req *Request) (adds []*Service, rmvs []*Service) {
 				}
 
 				entry.Text = text
-				entry.TTL = time.Duration(rr.Hdr.Ttl) * time.Second
-				entry.expiration = time.Now().Add(entry.TTL)
 			}
 		default:
 			// ignore
 		}
 	}
 
-	// TODO remove outdated services regularly
 	rmvs = c.removeExpired()
 
 	return
@@ -127,14 +134,48 @@ func (c *Cache) UpdateFrom(req *Request) (adds []*Service, rmvs []*Service) {
 func (c *Cache) removeExpired() []*Service {
 	var outdated []*Service
 	var services = c.services
+	now := time.Now()
 	for key, srv := range services {
-		if time.Now().After(srv.expiration) {
+		if !now.Before(srv.expiration) {
 			outdated = append(outdated, srv)
 			delete(c.services, key)
 		}
 	}
 
 	return outdated
+}
+
+// nextExpiration returns when the first of services expires.
+func (c *Cache) nextExpiration() (time.Time, bool) {
+	var next time.Time
+	for _, srv := range c.services {
+		if next.IsZero() || srv.expiration.Before(next) {
+			next = srv.expiration
+		}
+	}
+	return next, !next.IsZero()
+}
+
+// refreshTime returns when PTR records should be queried again
+// before they expire: at 80%, 85%, 90% and 95% of ttl (RFC 6762 5.2).
+// Only instances of service and times after the last query are considered.
+func (c *Cache) refreshTime(service string, lastQuery time.Time) (time.Time, bool) {
+	var next time.Time
+	for _, srv := range c.services {
+		if !srv.hasPTR || srv.ptrTTL == 0 || srv.ServiceName() != service {
+			continue
+		}
+		for k := 4; k >= 1; k-- {
+			t := srv.expiration.Add(-srv.ptrTTL * time.Duration(k) / 20)
+			if t.After(lastQuery) {
+				if next.IsZero() || t.Before(next) {
+					next = t
+				}
+				break
+			}
+		}
+	}
+	return next, !next.IsZero()
 }
 
 type byType []dns.RR
