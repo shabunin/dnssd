@@ -103,6 +103,28 @@ func lookupType(ctx context.Context, service string, conn MDNSConn, add AddFunc,
 		case req := <-ch:
 			log.Debug.Printf("Receive message at %s\n%s\n", req.IfaceName(), req.msg)
 			cache.UpdateFrom(req)
+
+			// Process removed entries first, so that a service instance
+			// that changed its port is removed before it is added again.
+			tmp := []*BrowseEntry{}
+			for _, e := range es {
+				var found = false
+				for _, srv := range cache.Services() {
+					if srv.ServiceInstanceName() == e.ServiceInstanceName() && srv.Port == e.Port {
+						found = true
+						break
+					}
+				}
+
+				if found {
+					tmp = append(tmp, e)
+				} else {
+					// TODO
+					rmv(*e)
+				}
+			}
+			es = tmp
+
 			for _, srv := range cache.Services() {
 				if srv.ServiceName() != service {
 					continue
@@ -111,7 +133,7 @@ func lookupType(ctx context.Context, service string, conn MDNSConn, add AddFunc,
 				for ifaceName, ips := range srv.ifaceIPs {
 					var found = false
 					for _, e := range es {
-						if e.Name == srv.Name && e.IfaceName == ifaceName {
+						if e.Name == srv.Name && e.IfaceName == ifaceName && e.Port == srv.Port {
 							found = true
 							break
 						}
@@ -132,25 +154,6 @@ func lookupType(ctx context.Context, service string, conn MDNSConn, add AddFunc,
 					}
 				}
 			}
-
-			tmp := []*BrowseEntry{}
-			for _, e := range es {
-				var found = false
-				for _, srv := range cache.Services() {
-					if srv.ServiceInstanceName() == e.ServiceInstanceName() {
-						found = true
-						break
-					}
-				}
-
-				if found {
-					tmp = append(tmp, e)
-				} else {
-					// TODO
-					rmv(*e)
-				}
-			}
-			es = tmp
 		case <-ctx.Done():
 			return ctx.Err()
 		}
