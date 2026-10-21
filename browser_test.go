@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"os"
-	"strings"
 	"testing"
 	"time"
 )
@@ -19,11 +17,8 @@ func TestBrowse(t *testing.T) {
 		t.Fatal("can not find the local interface")
 	}
 
-	localhost, err := os.Hostname()
-	if err != nil {
-		t.Fatal(err)
-	}
-	localhost = strings.TrimSuffix(strings.Replace(localhost, " ", "-", -1), ".local") // replace spaces with dashes and remove .local suffix
+	// service without host is advertised with host name of this computer
+	localhost := hostname()
 	for tName, hostValue := range map[string]string{
 		"regular host": "My-Computer",
 		"empty host":   "",

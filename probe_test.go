@@ -24,7 +24,8 @@ var testIface = &net.Interface{
 }
 
 type testConn struct {
-	read chan *Request
+	read  chan *Request
+	iface *net.Interface // where messages are received
 
 	in  chan *dns.Msg
 	out chan *dns.Msg
@@ -32,9 +33,10 @@ type testConn struct {
 
 func newTestConn() *testConn {
 	c := &testConn{
-		read: make(chan *Request),
-		in:   make(chan *dns.Msg),
-		out:  make(chan *dns.Msg),
+		read:  make(chan *Request),
+		iface: testIface,
+		in:    make(chan *dns.Msg),
+		out:   make(chan *dns.Msg),
 	}
 
 	return c
@@ -68,7 +70,7 @@ func (c *testConn) start(ctx context.Context) {
 	for {
 		select {
 		case msg := <-c.in:
-			req := &Request{msg: msg, from: &testAddr, iface: testIface}
+			req := &Request{msg: msg, from: &testAddr, iface: c.iface}
 			c.read <- req
 		case <-ctx.Done():
 			return
@@ -81,7 +83,8 @@ func (c *testConn) start(ctx context.Context) {
 // is announced, the probing for the second service should give
 func TestProbing(t *testing.T) {
 	// log.Debug.Enable()
-	testIface, _ = net.InterfaceByName("lo0")
+	// other tests use default testIface
+	testIface, _ := net.InterfaceByName("lo0")
 	if testIface == nil {
 		testIface, _ = net.InterfaceByName("lo")
 	}
@@ -95,6 +98,7 @@ func TestProbing(t *testing.T) {
 	otherConn := newTestConn()
 	conn.in = otherConn.out
 	conn.out = otherConn.in
+	conn.iface, otherConn.iface = testIface, testIface
 
 	cfg := Config{
 		Name:   "My Service",
@@ -116,7 +120,8 @@ func TestProbing(t *testing.T) {
 		rcfg := cfg.Copy()
 		rsrv, err := NewService(rcfg)
 		if err != nil {
-			t.Fatal(err)
+			t.Error(err)
+			return
 		}
 		rsrv.ifaceIPs = map[string][]net.IP{
 			testIface.Name: []net.IP{net.IP{192, 168, 0, 123}},
