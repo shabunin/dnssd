@@ -212,3 +212,56 @@ func TestBrowseTextChange(t *testing.T) {
 	msgs <- withText(announcement(120, 1000, "10.0.0.1"), 120, "c#=2", "id=AA")
 	expectNoEvent(t, events)
 }
+
+// queryConn records when queries are sent.
+type queryConn struct {
+	fakeConn
+	sent chan time.Time
+}
+
+func (c *queryConn) SendQuery(q *Query) error {
+	c.sent <- time.Now()
+	return nil
+}
+
+func TestBrowseRepeatsQuery(t *testing.T) {
+	minInterval, maxInterval, ifaces := queryMinInterval, queryMaxInterval, multicastInterfaces
+	t.Cleanup(func() { queryMinInterval, queryMaxInterval, multicastInterfaces = minInterval, maxInterval, ifaces })
+	queryMinInterval, queryMaxInterval = 20*time.Millisecond, 80*time.Millisecond
+	multicastInterfaces = func(...string) []*net.Interface {
+		return []*net.Interface{{Name: "eth0", Index: 1}}
+	}
+
+	conn := &queryConn{fakeConn: fakeConn{ch: make(chan *Request)}, sent: make(chan time.Time, 10)}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		lookupType(ctx, "_hap._tcp.local.", conn, func(BrowseEntry) {}, func(BrowseEntry) {})
+		close(done)
+	}()
+	// before intervals are restored
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
+
+	var times []time.Time
+	for len(times) < 6 {
+		select {
+		case at := <-conn.sent:
+			times = append(times, at)
+		case <-time.After(time.Second):
+			t.Fatalf("only %d queries sent", len(times))
+		}
+	}
+
+	// 20, 40, 80, 80, 80 ms
+	want := []time.Duration{20, 40, 80, 80, 80}
+	for i, w := range want {
+		got := times[i+1].Sub(times[i])
+		w *= time.Millisecond
+		if got < w-5*time.Millisecond || got > w+30*time.Millisecond {
+			t.Fatalf("interval %d is %v, want %v", i, got, w)
+		}
+	}
+}

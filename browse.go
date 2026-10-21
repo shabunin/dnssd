@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"time"
 )
 
 // BrowseEntry represents a discovered service instance.
@@ -64,6 +65,16 @@ func (e BrowseEntry) ServiceInstanceName() string {
 	return fmt.Sprintf("%s.%s.%s.", e.Name, e.Type, e.Domain)
 }
 
+// Intervals between browsing queries: the second query is sent a second
+// after the first one, then the interval doubles up to an hour (RFC 6762 5.2).
+var (
+	queryMinInterval = time.Second
+	queryMaxInterval = time.Hour
+)
+
+// multicastInterfaces is replaced in tests.
+var multicastInterfaces = MulticastInterfaces
+
 func lookupType(ctx context.Context, service string, conn MDNSConn, add AddFunc, rmv RmvFunc, ifaces ...string) (err error) {
 	var cache = NewCache()
 
@@ -84,23 +95,32 @@ func lookupType(ctx context.Context, service string, conn MDNSConn, add AddFunc,
 
 	ch := conn.Read(readCtx)
 
-	qs := make(chan *Query)
-	go func() {
-		for _, iface := range MulticastInterfaces(ifaces...) {
-			iface := iface
+	sendQueries := func() {
+		for _, iface := range multicastInterfaces(ifaces...) {
 			q := &Query{msg: m, iface: iface}
-			qs <- q
-		}
-	}()
-
-	es := []*BrowseEntry{}
-	for {
-		select {
-		case q := <-qs:
 			log.Debug.Printf("Send browsing query at %s\n%s\n", q.IfaceName(), q.msg)
 			if err := conn.SendQuery(q); err != nil {
 				log.Debug.Println("SendQuery:", err)
 			}
+		}
+	}
+
+	// The query is repeated, so that a lost query or response doesn't hide
+	// service instances until they announce themselves again,
+	// and a responder that ignored the query, because it answered
+	// another one less than a second ago, answers the next one.
+	sendQueries()
+	interval := queryMinInterval
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
+
+	es := []*BrowseEntry{}
+	for {
+		select {
+		case <-timer.C:
+			sendQueries()
+			interval = min(interval*2, queryMaxInterval)
+			timer.Reset(interval)
 
 		case req := <-ch:
 			log.Debug.Printf("Receive message at %s\n%s\n", req.IfaceName(), req.msg)
