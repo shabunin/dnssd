@@ -5,7 +5,7 @@ package dnssd
 import (
 	"context"
 
-	"github.com/brutella/dnssd/log"
+	"github.com/shabunin/dnssd/log"
 )
 
 func (r *responder) linkSubscribe(context.Context) {

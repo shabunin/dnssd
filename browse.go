@@ -1,8 +1,8 @@
 package dnssd
 
 import (
-	"github.com/brutella/dnssd/log"
 	"github.com/miekg/dns"
+	"github.com/shabunin/dnssd/log"
 
 	"context"
 	"fmt"

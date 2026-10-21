@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/brutella/dnssd"
-	"github.com/brutella/dnssd/log"
+	"github.com/shabunin/dnssd"
+	"github.com/shabunin/dnssd/log"
 )
 
 var serviceFlag = flag.String("Type", "_asdf._tcp", "Service type")

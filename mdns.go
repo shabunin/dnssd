@@ -6,8 +6,8 @@ import (
 	"net"
 	"time"
 
-	"github.com/brutella/dnssd/log"
 	"github.com/miekg/dns"
+	"github.com/shabunin/dnssd/log"
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
 )

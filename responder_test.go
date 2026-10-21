@@ -2,8 +2,8 @@ package dnssd
 
 import (
 	"context"
-	"github.com/brutella/dnssd/log"
 	"github.com/miekg/dns"
+	"github.com/shabunin/dnssd/log"
 	"net"
 	"testing"
 	"time"

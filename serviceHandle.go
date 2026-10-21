@@ -4,8 +4,8 @@ import (
 	"net"
 	"time"
 
-	"github.com/brutella/dnssd/log"
 	"github.com/miekg/dns"
+	"github.com/shabunin/dnssd/log"
 )
 
 // ServiceHandle serves a middleman between a service and a responder.

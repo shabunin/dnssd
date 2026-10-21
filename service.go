@@ -3,7 +3,7 @@ package dnssd
 import (
 	"bytes"
 
-	"github.com/brutella/dnssd/log"
+	"github.com/shabunin/dnssd/log"
 
 	"fmt"
 	"net"

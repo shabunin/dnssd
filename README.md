@@ -1,5 +1,9 @@
 # DNS-SD
 
+Fork of [brutella/dnssd](https://github.com/brutella/dnssd) used by [hkontroller](https://github.com/shabunin/hkontroller).
+It reports port and address changes of browsed service instances, see branch `browse-updates`.
+
+
 [![Build Status](https://travis-ci.org/brutella/hc.svg)](https://travis-ci.org/brutella/dnssd)
 
 This library implements [Multicast DNS][mdns] and [DNS-Based Service Discovery][dnssd] to provide zero-configuration operations. It lets you announce and find services in a specific link-local domain.

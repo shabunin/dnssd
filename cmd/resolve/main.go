@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/brutella/dnssd"
+	"github.com/shabunin/dnssd"
 )
 
 var instanceFlag = flag.String("Name", "Service", "Service Name")

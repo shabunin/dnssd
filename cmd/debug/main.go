@@ -8,7 +8,7 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/brutella/dnssd"
+	"github.com/shabunin/dnssd"
 )
 
 var timeFormat = "15:04:05.000"

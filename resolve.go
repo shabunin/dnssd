@@ -3,8 +3,8 @@ package dnssd
 import (
 	"context"
 
-	"github.com/brutella/dnssd/log"
 	"github.com/miekg/dns"
+	"github.com/shabunin/dnssd/log"
 )
 
 // LookupInstance resolves a service by its service instance name.

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/brutella/dnssd/log"
 	"github.com/miekg/dns"
+	"github.com/shabunin/dnssd/log"
 )
 
 // ProbeService probes for the hostname and service instance name of srv.

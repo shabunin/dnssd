@@ -4,7 +4,7 @@ import (
 	"context"
 	"net"
 
-	"github.com/brutella/dnssd/log"
+	"github.com/shabunin/dnssd/log"
 	"github.com/vishvananda/netlink"
 )
 
