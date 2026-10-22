@@ -29,6 +29,8 @@ jobs:
             exit 1
           fi
       - run: go vet ./...
+      # tests send multicast on loopback, it has no multicast flag on runners
+      - run: sudo ip link set lo multicast on
       - run: go test -race -count=1 ./...
       # fails only if vulnerable code is actually called. Standard library is checked
       # as of latest release, older patch releases of minimal version have fixed issues
