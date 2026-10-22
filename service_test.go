@@ -62,6 +62,22 @@ func TestParseHostname(t *testing.T) {
 	}
 }
 
+func TestHostLabel(t *testing.T) {
+	for hostname, want := range map[string]string{
+		"pc":                    "pc",
+		"pc.":                   "pc",
+		"pc.local":              "pc",
+		"pc.example.com":        "pc",
+		"192.168.1.136":         "192",
+		"localhost.localdomain": "localhost",
+		"":                      "unknown",
+	} {
+		if is := hostLabel(hostname); is != want {
+			t.Errorf("%q: is=%v want=%v", hostname, is, want)
+		}
+	}
+}
+
 func TestNewServiceWithMinimalConfig(t *testing.T) {
 	cfg := Config{
 		Name: "Test",

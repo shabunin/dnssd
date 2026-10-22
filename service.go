@@ -525,16 +525,24 @@ func parseServiceInstanceName(str string) (name string, service string, domain s
 	return
 }
 
-// Get Fully Qualified Domain Name
-// returns "unknown" or hostanme in case of error
+// hostname returns host name of this computer to advertise in .local domain,
+// "unknown" in case of error.
 func hostname() string {
 	hostname, err := os.Hostname()
 	if err != nil {
 		return "unknown"
 	}
+	return hostLabel(hostname)
+}
 
-	name, _ := parseHostname(hostname)
-	return name
+// hostLabel returns first label of OS host name, like avahi does:
+// "pc.example.com" becomes "pc". Domain of OS host name is not the mDNS domain.
+func hostLabel(hostname string) string {
+	label, _, _ := strings.Cut(strings.Trim(hostname, "."), ".")
+	if label == "" {
+		return "unknown"
+	}
+	return label
 }
 
 func parseHostname(str string) (name string, domain string) {
